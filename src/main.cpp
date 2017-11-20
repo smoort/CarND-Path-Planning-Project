@@ -198,6 +198,7 @@ int main() {
   	map_waypoints_dy.push_back(d_y);
   }
 
+
   h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
@@ -206,8 +207,8 @@ int main() {
     //auto sdata = string(data).substr(0, length);
     //cout << sdata << endl;
 
-    int lane = 1;
-    double ref_vel = 49.5;
+    int lane;
+    double ref_vel;
 
     if (length && length > 2 && data[0] == '4' && data[1] == '2') {
 
@@ -244,12 +245,73 @@ int main() {
             vector<double> next_x_vals;
           	vector<double> next_y_vals;
 
+          	cout << "car_d = " << car_d << endl;
+          	if(car_d < 4)
+            {
+                lane = 0;
+            }
+            else if(car_d > 8)
+            {
+                lane = 2;
+            }
+            else
+            {
+                lane = 1;
+            }
+            cout << "lane = " << lane << endl;
+
           	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
 
           	//cout << "Inside todo" << endl;
 
             //int path_size = previous_path_x.size();
             int prev_size = previous_path_x.size();
+
+            if(prev_size > 0)
+            {
+                car_s = end_path_s;
+            }
+
+            bool too_close = false;
+
+            // find rel_vel to use
+            for(int i = 0; i < sensor_fusion.size(); i++)
+            {
+                //car is in my lane
+                float d = sensor_fusion[i][6];
+                if(d < (2 + 4 * lane + 2) && d > (2 + 4 * lane - 2))
+                {
+                    double vx = sensor_fusion[i][3];
+                    double vy = sensor_fusion[i][4];
+                    double check_speed = sqrt(vx*vx + vy*vy);
+                    double check_car_s = sensor_fusion[i][5];
+
+                    //if using previous points, can project s value out
+                    check_car_s += ((double)prev_size * 0.02 * check_speed);
+
+                    //check if s value greater than car and s gap
+                    if((check_car_s > car_s) && ((check_car_s - car_s) < 30))
+                    {
+                        // write logic here
+                        //ref_vel = 29.5;
+                        too_close = true;
+                        cout << "too close" << endl;
+                        if(lane > 0)
+                        {
+                            lane = 0;
+                        }
+                    }
+                }
+            }
+
+            if(too_close or (ref_vel > 49.5))
+            {
+                ref_vel -= 0.224;
+            }
+            else if(ref_vel < 49.5)
+            {
+                ref_vel += 0.224;
+            }
 
             vector<double> ptsx;
             vector<double> ptsy;
@@ -356,54 +418,6 @@ int main() {
 
             //cout << "path size = " << next_x_vals.size() << " , " << next_y_vals.size() << endl;
 
-/*
-            double pos_x;
-            double pos_y;
-            double angle;
-
-            for(int i = 0; i < path_size; i++)
-            {
-                next_x_vals.push_back(previous_path_x[i]);
-                next_y_vals.push_back(previous_path_y[i]);
-            }
-
-            if(path_size == 0)
-            {
-                pos_x = car_x;
-                pos_y = car_y;
-                angle = deg2rad(car_yaw);
-            }
-            else
-            {
-                pos_x = previous_path_x[path_size-1];
-                pos_y = previous_path_y[path_size-1];
-
-                double pos_x2 = previous_path_x[path_size-2];
-                double pos_y2 = previous_path_y[path_size-2];
-                angle = atan2(pos_y-pos_y2,pos_x-pos_x2);
-            }
-
-            double dist_inc = 0.5;
-            for(int i = 0; i < 50-path_size; i++)
-            {
-                next_x_vals.push_back(pos_x+(dist_inc)*cos(angle+(i+1)*(pi()/100)));
-                next_y_vals.push_back(pos_y+(dist_inc)*sin(angle+(i+1)*(pi()/100)));
-                pos_x += (dist_inc)*cos(angle+(i+1)*(pi()/100));
-                pos_y += (dist_inc)*sin(angle+(i+1)*(pi()/100));
-            }
-
-            double dist_inc = 0.3;
-            for(int i = 0; i < 50-path_size; i++)
-            {
-                double next_s = car_s + ((i+1)*dist_inc);
-                double next_d = 6;
-                vector<double> xy = getXY(next_s, next_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
-
-                next_x_vals.push_back(xy[0]);
-                next_y_vals.push_back(xy[1]);
-
-            }
-*/
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
 
