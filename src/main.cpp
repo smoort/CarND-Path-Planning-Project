@@ -160,6 +160,34 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
+int safe_lane_cost(int GOAL_LANE, int proposed_lane) {
+
+    double cost = abs(GOAL_LANE - proposed_lane);
+    return cost;
+}
+
+int high_speed_traffic_cost (int proposed_lane, vector<double> sensor_fusion) {
+
+    double cost;
+    return cost;
+}
+
+vector<string> successor_states(string current_state, int current_lane) {
+    /*
+    Provides the possible next states given the current state for the FSM
+    discussed in the course, with the exception that lane changes happen
+    instantaneously, so LCL and LCR can only transition back to KL.
+    */
+    vector<string> states;
+    states.push_back("KL");
+    string state = current_state;
+    if(state.compare("KL") == 0) {
+        states.push_back("LCL");
+        states.push_back("LCR");
+    }
+    return states;
+}
+
 int main() {
   uWS::Hub h;
 
@@ -198,8 +226,24 @@ int main() {
   	map_waypoints_dy.push_back(d_y);
   }
 
+  //impacts default behavior for most states
+  int SPEED_LIMIT = 49.5;
 
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  //all traffic in lane (besides ego) follow these speeds
+  vector<int> LANE_SPEEDS = {6,7,8,9};
+
+  //Number of available "cells" which should have traffic
+  double TRAFFIC_DENSITY   = 0.15;
+
+  // At each timestep, ego can set acceleration to value between
+  // -MAX_ACCEL and MAX_ACCEL
+  double MAX_ACCEL = 0.224;
+
+  // s value and lane number of goal.
+  int GOAL_LANE = 1;
+
+
+  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy,SPEED_LIMIT,MAX_ACCEL](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -207,7 +251,8 @@ int main() {
     //auto sdata = string(data).substr(0, length);
     //cout << sdata << endl;
 
-    int lane;
+    int ego_current_lane;
+    int target_lane;
     double ref_vel;
 
     if (length && length > 2 && data[0] == '4' && data[1] == '2') {
@@ -245,72 +290,119 @@ int main() {
             vector<double> next_x_vals;
           	vector<double> next_y_vals;
 
-          	cout << "car_d = " << car_d << endl;
-          	if(car_d < 4)
-            {
-                lane = 0;
-            }
-            else if(car_d > 8)
-            {
-                lane = 2;
-            }
-            else
-            {
-                lane = 1;
-            }
-            cout << "lane = " << lane << endl;
 
           	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
 
           	//cout << "Inside todo" << endl;
+            //cout << "car_yaw = " << car_yaw << endl;
+          	//cout << "car_s = " << car_s << endl;
+          	//cout << "car_d = " << car_d << endl;
 
-            //int path_size = previous_path_x.size();
+          	/* Prediction logic starts here */
+
+            bool current_lane_too_close = false;
+            bool left_lane_open = true;
+            bool right_lane_open = true;
+            int vehicle_lane;
+
+          	if(car_d < 4)
+            {
+                ego_current_lane = 0;
+                left_lane_open = false;
+            }
+            else if(car_d > 8)
+            {
+                ego_current_lane = 2;
+                right_lane_open = false;
+            }
+            else
+            {
+                ego_current_lane = 1;
+            }
+            target_lane = ego_current_lane;
+            //cout << "lane = " << ego_current_lane << endl;
+
             int prev_size = previous_path_x.size();
+            //cout << "prev path size = " << prev_size << endl;
 
             if(prev_size > 0)
             {
                 car_s = end_path_s;
             }
 
-            bool too_close = false;
 
-            // find rel_vel to use
+
+            // find ref_vel to use
             for(int i = 0; i < sensor_fusion.size(); i++)
             {
                 //car is in my lane
-                float d = sensor_fusion[i][6];
-                if(d < (2 + 4 * lane + 2) && d > (2 + 4 * lane - 2))
+                float vehicle_d = sensor_fusion[i][6];
+                if(vehicle_d < 4)
                 {
-                    double vx = sensor_fusion[i][3];
-                    double vy = sensor_fusion[i][4];
-                    double check_speed = sqrt(vx*vx + vy*vy);
-                    double check_car_s = sensor_fusion[i][5];
+                    vehicle_lane = 0;
+                }
+                else if(vehicle_d > 8)
+                {
+                    vehicle_lane = 2;
+                }
+                else
+                {
+                    vehicle_lane = 1;
+                }
 
-                    //if using previous points, can project s value out
-                    check_car_s += ((double)prev_size * 0.02 * check_speed);
+                double vx = sensor_fusion[i][3];
+                double vy = sensor_fusion[i][4];
+                double check_speed = sqrt(vx*vx + vy*vy);
+                double check_car_s = sensor_fusion[i][5];
 
-                    //check if s value greater than car and s gap
-                    if((check_car_s > car_s) && ((check_car_s - car_s) < 30))
+                //if using previous points, can project s value out
+                check_car_s += ((double)prev_size * 0.02 * check_speed);
+
+                //check if s value greater than car and s gap
+                if((check_car_s > car_s) && ((check_car_s - car_s) < 30))
+                {
+                    if(vehicle_lane == ego_current_lane)
+                    //if(d < (2 + 4 * ego_current_lane + 2) && d > (2 + 4 * ego_current_lane - 2))
                     {
-                        // write logic here
-                        //ref_vel = 29.5;
-                        too_close = true;
-                        cout << "too close" << endl;
-                        if(lane > 0)
-                        {
-                            lane = 0;
-                        }
+                        current_lane_too_close = true;
+                        cout << "too close at " << check_car_s - car_s << endl;
+                    }
+                    else if(vehicle_lane == ego_current_lane - 1)
+                    {
+                        left_lane_open = false;
+                        cout << "left lane closed " << endl;
+                    }
+                    else if(vehicle_lane == ego_current_lane + 1)
+                    {
+                        right_lane_open = false;
+                        cout << "right lane closed " << endl;
                     }
                 }
             }
 
-            if(too_close or (ref_vel > 49.5))
+            if(current_lane_too_close)
             {
-                ref_vel -= 0.224;
+                if(left_lane_open)
+                {
+                    target_lane = ego_current_lane - 1;
+                }
+                else if(right_lane_open)
+                {
+                    target_lane = ego_current_lane + 1;
+                }
+                else
+                {
+                    cout << "slowing down" << endl;
+                    ref_vel -= MAX_ACCEL;
+                }
             }
-            else if(ref_vel < 49.5)
+            else if(ref_vel > SPEED_LIMIT)
             {
-                ref_vel += 0.224;
+                ref_vel -= MAX_ACCEL;
+            }
+            else if(ref_vel < SPEED_LIMIT)
+            {
+                ref_vel += MAX_ACCEL;
             }
 
             vector<double> ptsx;
@@ -334,7 +426,6 @@ int main() {
             }
             else
             {
-                //cout << "prev path =" << prev_size << endl;
                 ref_x = previous_path_x[prev_size - 1];
                 ref_y = previous_path_y[prev_size - 1];
 
@@ -349,9 +440,9 @@ int main() {
                 ptsy.push_back(ref_y);
             }
 
-            vector<double> next_wp0 = getXY(car_s + 30, (2 + 4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-            vector<double> next_wp1 = getXY(car_s + 60, (2 + 4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-            vector<double> next_wp2 = getXY(car_s + 90, (2 + 4*lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp0 = getXY(car_s + 30, (2 + 4*target_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp1 = getXY(car_s + 60, (2 + 4*target_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp2 = getXY(car_s + 90, (2 + 4*target_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
 
             ptsx.push_back(next_wp0[0]);
             ptsx.push_back(next_wp1[0]);
