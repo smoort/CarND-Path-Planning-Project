@@ -330,8 +330,6 @@ int main() {
                 car_s = end_path_s;
             }
 
-
-
             // find ref_vel to use
             for(int i = 0; i < sensor_fusion.size(); i++)
             {
@@ -359,23 +357,36 @@ int main() {
                 check_car_s += ((double)prev_size * 0.02 * check_speed);
 
                 //check if s value greater than car and s gap
-                if((check_car_s > car_s) && ((check_car_s - car_s) < 30))
+                if(check_car_s > car_s)
                 {
-                    if(vehicle_lane == ego_current_lane)
+                    if((vehicle_lane == ego_current_lane) && ((check_car_s - car_s) < 30))
                     //if(d < (2 + 4 * ego_current_lane + 2) && d > (2 + 4 * ego_current_lane - 2))
                     {
                         current_lane_too_close = true;
                         cout << "too close at " << check_car_s - car_s << endl;
                     }
-                    else if(vehicle_lane == ego_current_lane - 1)
+                    else if((vehicle_lane == ego_current_lane - 1) && ((check_car_s - car_s) < 40))
                     {
                         left_lane_open = false;
-                        cout << "left lane closed " << endl;
+                        //cout << "left pass not possible - vehicle ahead" << endl;
+                    }
+                    else if((vehicle_lane == ego_current_lane + 1) && ((check_car_s - car_s) < 40))
+                    {
+                        right_lane_open = false;
+                        //cout << "right pass not possible - vehicle ahead" << endl;
+                    }
+                }
+                else if((check_car_s < car_s) && ((car_s - check_car_s) < 15))
+                {
+                    if(vehicle_lane == ego_current_lane - 1)
+                    {
+                        left_lane_open = false;
+                        //cout << "left pass not possible - vehicle behind" << endl;
                     }
                     else if(vehicle_lane == ego_current_lane + 1)
                     {
                         right_lane_open = false;
-                        cout << "right lane closed " << endl;
+                        //cout << "right pass not possible - vehicle behind" << endl;
                     }
                 }
             }
@@ -396,6 +407,7 @@ int main() {
                     ref_vel -= MAX_ACCEL;
                 }
             }
+            /*
             else if(ref_vel > SPEED_LIMIT)
             {
                 ref_vel -= MAX_ACCEL;
@@ -404,6 +416,7 @@ int main() {
             {
                 ref_vel += MAX_ACCEL;
             }
+            */
 
             vector<double> ptsx;
             vector<double> ptsy;
@@ -483,10 +496,11 @@ int main() {
             double target_dist = sqrt((target_x * target_x) + (target_y * target_y));
 
             double x_add_on = 0;
-            double N = (target_dist / (0.02 * ref_vel / 2.24));
+
 
             for(int i=1; i <= 50 - previous_path_x.size(); i++)
             {
+                double N = (target_dist / (0.02 * ref_vel / 2.24));
                 double x_point = x_add_on + (target_x) / N;
                 double y_point = s(x_point);
                 //cout << "y from spline at x_point = " << x_point << "is " << y_point << endl;
@@ -505,6 +519,15 @@ int main() {
 
                 next_x_vals.push_back(x_point);
                 next_y_vals.push_back(y_point);
+
+                if(current_lane_too_close or (ref_vel > SPEED_LIMIT))
+                {
+                    ref_vel -= MAX_ACCEL;
+                }
+                else if(ref_vel < SPEED_LIMIT)
+                {
+                    ref_vel += MAX_ACCEL;
+                }
             }
 
             //cout << "path size = " << next_x_vals.size() << " , " << next_y_vals.size() << endl;
