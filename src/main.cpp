@@ -9,6 +9,7 @@
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
 #include "spline.h"
+#include "vehicle.h"
 
 using namespace std;
 
@@ -160,34 +161,6 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 }
 
-int safe_lane_cost(int GOAL_LANE, int proposed_lane) {
-
-    double cost = abs(GOAL_LANE - proposed_lane);
-    return cost;
-}
-
-int high_speed_traffic_cost (int proposed_lane, vector<double> sensor_fusion) {
-
-    double cost;
-    return cost;
-}
-
-vector<string> successor_states(string current_state, int current_lane) {
-    /*
-    Provides the possible next states given the current state for the FSM
-    discussed in the course, with the exception that lane changes happen
-    instantaneously, so LCL and LCR can only transition back to KL.
-    */
-    vector<string> states;
-    states.push_back("KL");
-    string state = current_state;
-    if(state.compare("KL") == 0) {
-        states.push_back("LCL");
-        states.push_back("LCR");
-    }
-    return states;
-}
-
 int main() {
   uWS::Hub h;
 
@@ -242,8 +215,12 @@ int main() {
   // s value and lane number of goal.
   int GOAL_LANE = 1;
 
+  // initial state
+  Vehicle ego;
+  ego.state = "KL";
 
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy,SPEED_LIMIT,MAX_ACCEL](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+
+  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy,SPEED_LIMIT,MAX_ACCEL,&ego](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -251,7 +228,6 @@ int main() {
     //auto sdata = string(data).substr(0, length);
     //cout << sdata << endl;
 
-    int ego_current_lane;
     int target_lane;
     double ref_vel;
 
@@ -298,29 +274,29 @@ int main() {
           	//cout << "car_s = " << car_s << endl;
           	//cout << "car_d = " << car_d << endl;
 
+          	/* ******************************/
           	/* Prediction logic starts here */
+          	/* ******************************/
 
-            bool current_lane_too_close = false;
-            bool left_lane_open = true;
-            bool right_lane_open = true;
-            int vehicle_lane;
+            predictions pred;
+            int other_vehicle_lane;
 
           	if(car_d < 4)
             {
-                ego_current_lane = 0;
-                left_lane_open = false;
+                ego.lane = 0;
+                pred.left_lane_open = false;
             }
             else if(car_d > 8)
             {
-                ego_current_lane = 2;
-                right_lane_open = false;
+                ego.lane = 2;
+                pred.right_lane_open = false;
             }
             else
             {
-                ego_current_lane = 1;
+                ego.lane = 1;
             }
-            target_lane = ego_current_lane;
-            //cout << "lane = " << ego_current_lane << endl;
+            target_lane = ego.lane;
+            //cout << "lane = " << ego.lane << endl;
 
             int prev_size = previous_path_x.size();
             //cout << "prev path size = " << prev_size << endl;
@@ -337,15 +313,15 @@ int main() {
                 float vehicle_d = sensor_fusion[i][6];
                 if(vehicle_d < 4)
                 {
-                    vehicle_lane = 0;
+                    other_vehicle_lane = 0;
                 }
                 else if(vehicle_d > 8)
                 {
-                    vehicle_lane = 2;
+                    other_vehicle_lane = 2;
                 }
                 else
                 {
-                    vehicle_lane = 1;
+                    other_vehicle_lane = 1;
                 }
 
                 double vx = sensor_fusion[i][3];
@@ -359,64 +335,48 @@ int main() {
                 //check if s value greater than car and s gap
                 if(check_car_s > car_s)
                 {
-                    if((vehicle_lane == ego_current_lane) && ((check_car_s - car_s) < 30))
-                    //if(d < (2 + 4 * ego_current_lane + 2) && d > (2 + 4 * ego_current_lane - 2))
+                    if((other_vehicle_lane == ego.lane) && ((check_car_s - car_s) < 30))
+                    //if(d < (2 + 4 * ego.lane + 2) && d > (2 + 4 * ego.lane - 2))
                     {
-                        current_lane_too_close = true;
+                        pred.current_lane_too_close = true;
                         cout << "too close at " << check_car_s - car_s << endl;
                     }
-                    else if((vehicle_lane == ego_current_lane - 1) && ((check_car_s - car_s) < 40))
+                    else if((other_vehicle_lane == ego.lane - 1) && ((check_car_s - car_s) < 40))
                     {
-                        left_lane_open = false;
+                        pred.left_lane_open = false;
                         //cout << "left pass not possible - vehicle ahead" << endl;
                     }
-                    else if((vehicle_lane == ego_current_lane + 1) && ((check_car_s - car_s) < 40))
+                    else if((other_vehicle_lane == ego.lane + 1) && ((check_car_s - car_s) < 40))
                     {
-                        right_lane_open = false;
+                        pred.right_lane_open = false;
                         //cout << "right pass not possible - vehicle ahead" << endl;
                     }
                 }
                 else if((check_car_s < car_s) && ((car_s - check_car_s) < 15))
                 {
-                    if(vehicle_lane == ego_current_lane - 1)
+                    if(other_vehicle_lane == ego.lane - 1)
                     {
-                        left_lane_open = false;
+                        pred.left_lane_open = false;
                         //cout << "left pass not possible - vehicle behind" << endl;
                     }
-                    else if(vehicle_lane == ego_current_lane + 1)
+                    else if(other_vehicle_lane == ego.lane + 1)
                     {
-                        right_lane_open = false;
+                        pred.right_lane_open = false;
                         //cout << "right pass not possible - vehicle behind" << endl;
                     }
                 }
             }
 
-            if(current_lane_too_close)
+            string next_state = ego.choose_next_state(pred);
+
+            if(next_state == "LCL")
             {
-                if(left_lane_open)
-                {
-                    target_lane = ego_current_lane - 1;
-                }
-                else if(right_lane_open)
-                {
-                    target_lane = ego_current_lane + 1;
-                }
-                else
-                {
-                    cout << "slowing down" << endl;
-                    ref_vel -= MAX_ACCEL;
-                }
+              target_lane = ego.lane - 1;
             }
-            /*
-            else if(ref_vel > SPEED_LIMIT)
+            else if(next_state == "LCR")
             {
-                ref_vel -= MAX_ACCEL;
+              target_lane = ego.lane + 1;
             }
-            else if(ref_vel < SPEED_LIMIT)
-            {
-                ref_vel += MAX_ACCEL;
-            }
-            */
 
             vector<double> ptsx;
             vector<double> ptsy;
@@ -520,7 +480,7 @@ int main() {
                 next_x_vals.push_back(x_point);
                 next_y_vals.push_back(y_point);
 
-                if(current_lane_too_close or (ref_vel > SPEED_LIMIT))
+                if(pred.current_lane_too_close or (ref_vel > SPEED_LIMIT))
                 {
                     ref_vel -= MAX_ACCEL;
                 }
