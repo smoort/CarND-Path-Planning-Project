@@ -92,33 +92,35 @@ public:
 
     //double comfort_cost = calculate_collision_cost(next_state, pred);
     //double legal_cost = calculate_legal_cost(next_state, pred);
-    double collision_cost = calculate_collision_cost(next_state, pred);
+    double safety_cost = calculate_safety_cost(next_state, pred);
 
     //double total_cost = 100 * collision_cost + 10 * legal_cost + 1 * comfort_cost;
-    double total_cost = collision_cost;
+    double total_cost = safety_cost;
 
     return total_cost;
 
   }
 
-  double calculate_collision_cost(string next_state, predictions pred)
+  double calculate_safety_cost(string next_state, predictions pred)
   {
-    double collision_cost = 0;
+    double safety_cost = 0;
 
     if(next_state == "KL" && pred.current_lane_too_close)
     {
-      collision_cost = 0.5;
+      safety_cost = 0.5;
     }
 
     if(next_state == "LCL" && !pred.left_lane_open)
     {
-      collision_cost = 1;
+      safety_cost = 1;
     }
 
     if(next_state == "LCR" && !pred.right_lane_open)
     {
-      collision_cost = 1;
+      safety_cost = 1;
     }
+
+    return safety_cost;
   }
 
   vector<Vehicle> generate_trajectory(string state, map<int, vector<Vehicle>> predictions);
