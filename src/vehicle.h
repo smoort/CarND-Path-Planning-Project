@@ -17,8 +17,6 @@ struct predictions  {
 class Vehicle {
 public:
 
-  map<string, int> lane_direction = {{"PLCL", 1}, {"LCL", 1}, {"LCR", -1}, {"PLCR", -1}};
-
   double x;
 
   double y;
@@ -31,11 +29,7 @@ public:
 
   double speed;
 
-  double lane;
-
-  int L = 1;
-
-  int preferred_buffer = 6; // impacts "keep lane" behavior.
+  int lane;
 
   int goal_lane;
 
@@ -52,6 +46,23 @@ public:
   * Destructor
   */
   virtual ~Vehicle(){}
+
+    static int get_lane(int d){
+    int lane;
+    if(d < 4)
+    {
+      lane = 0;
+    }
+    else if(d > 8)
+    {
+      lane = 2;
+    }
+    else
+    {
+      lane = 1;
+    }
+    return lane;
+  }
 
   string choose_next_state(predictions pred) {
 
@@ -90,12 +101,11 @@ public:
   double calculate_total_cost(string next_state, predictions pred)
   {
 
-    //double comfort_cost = calculate_collision_cost(next_state, pred);
-    //double legal_cost = calculate_legal_cost(next_state, pred);
     double safety_cost = calculate_safety_cost(next_state, pred);
+    double legal_cost = calculate_legal_cost(next_state, pred);
+    double comfort_cost = calculate_comfort_cost(next_state, pred);
 
-    //double total_cost = 100 * collision_cost + 10 * legal_cost + 1 * comfort_cost;
-    double total_cost = safety_cost;
+    double total_cost = 100 * safety_cost + 10 * legal_cost + 1 * comfort_cost;
 
     return total_cost;
 
@@ -107,7 +117,7 @@ public:
 
     if(next_state == "KL" && pred.current_lane_too_close)
     {
-      safety_cost = 0.5;
+      safety_cost = 0.05;
     }
 
     if(next_state == "LCL" && !pred.left_lane_open)
@@ -123,31 +133,44 @@ public:
     return safety_cost;
   }
 
-  vector<Vehicle> generate_trajectory(string state, map<int, vector<Vehicle>> predictions);
+  double calculate_legal_cost(string next_state, predictions pred)
+  {
+    double legal_cost = 0;
 
-  vector<float> get_kinematics(map<int, vector<Vehicle>> predictions, int lane);
+    if(next_state == "KL")
+    {
+      legal_cost = 0;
+    }
 
-  vector<Vehicle> constant_speed_trajectory();
+    if(next_state == "LCL" && lane == 0)
+    {
+      legal_cost = 1;
+    }
 
-  vector<Vehicle> keep_lane_trajectory(map<int, vector<Vehicle>> predictions);
+    if(next_state == "LCR" && lane == 2)
+    {
+      legal_cost = 1;
+    }
 
-  vector<Vehicle> lane_change_trajectory(string state, map<int, vector<Vehicle>> predictions);
+    return legal_cost;
+  }
 
-  vector<Vehicle> prep_lane_change_trajectory(string state, map<int, vector<Vehicle>> predictions);
+  double calculate_comfort_cost(string next_state, predictions pred)
+  {
+    double comfort_cost = 0;
 
-  void increment(int dt);
+    if(next_state == "KL")
+    {
+      comfort_cost = 0;
+    }
 
-  float position_at(int t);
+    if(next_state == "LCL" or next_state == "LCR")
+    {
+      comfort_cost = 1;
+    }
 
-  bool get_vehicle_behind(map<int, vector<Vehicle>> predictions, int lane, Vehicle & rVehicle);
-
-  bool get_vehicle_ahead(map<int, vector<Vehicle>> predictions, int lane, Vehicle & rVehicle);
-
-  vector<Vehicle> generate_predictions(int horizon=2);
-
-  void realize_next_state(vector<Vehicle> trajectory);
-
-  void configure(vector<int> road_data);
+    return comfort_cost;
+  }
 
 };
 

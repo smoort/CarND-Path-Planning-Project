@@ -275,26 +275,13 @@ int main() {
           	//cout << "car_d = " << car_d << endl;
 
           	/* ******************************/
-          	/* Prediction logic starts here */
+          	/* Prediction section           */
           	/* ******************************/
 
             predictions pred;
             int other_vehicle_lane;
 
-          	if(car_d < 4)
-            {
-                ego.lane = 0;
-                pred.left_lane_open = false;
-            }
-            else if(car_d > 8)
-            {
-                ego.lane = 2;
-                pred.right_lane_open = false;
-            }
-            else
-            {
-                ego.lane = 1;
-            }
+            ego.lane = Vehicle::get_lane(car_d);
             target_lane = ego.lane;
             //cout << "lane = " << ego.lane << endl;
 
@@ -310,19 +297,8 @@ int main() {
             for(int i = 0; i < sensor_fusion.size(); i++)
             {
                 //car is in my lane
-                float vehicle_d = sensor_fusion[i][6];
-                if(vehicle_d < 4)
-                {
-                    other_vehicle_lane = 0;
-                }
-                else if(vehicle_d > 8)
-                {
-                    other_vehicle_lane = 2;
-                }
-                else
-                {
-                    other_vehicle_lane = 1;
-                }
+                float other_vehicle_d = sensor_fusion[i][6];
+                other_vehicle_lane = Vehicle::get_lane(other_vehicle_d);
 
                 double vx = sensor_fusion[i][3];
                 double vy = sensor_fusion[i][4];
@@ -339,7 +315,7 @@ int main() {
                     //if(d < (2 + 4 * ego.lane + 2) && d > (2 + 4 * ego.lane - 2))
                     {
                         pred.current_lane_too_close = true;
-                        cout << "too close at " << check_car_s - car_s << endl;
+                        cout << "approaching vehicle in lane, need to slow down  " << check_car_s - car_s << endl;
                     }
                     else if((other_vehicle_lane == ego.lane - 1) && ((check_car_s - car_s) < 40))
                     {
@@ -367,6 +343,11 @@ int main() {
                 }
             }
 
+            /* ********************************/
+          	/* Behaviour Planning section     */
+          	/* ********************************/
+
+
             string next_state = ego.choose_next_state(pred);
 
             if(next_state == "LCL")
@@ -377,6 +358,10 @@ int main() {
             {
               target_lane = ego.lane + 1;
             }
+
+          	/* *********************************/
+          	/* Trajectory Planning section     */
+          	/* *********************************/
 
             vector<double> ptsx;
             vector<double> ptsy;
