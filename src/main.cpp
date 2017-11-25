@@ -202,22 +202,11 @@ int main() {
   //impacts default behavior for most states
   int SPEED_LIMIT = 49.5;
 
-  //all traffic in lane (besides ego) follow these speeds
-  vector<int> LANE_SPEEDS = {6,7,8,9};
-
-  //Number of available "cells" which should have traffic
-  double TRAFFIC_DENSITY   = 0.15;
-
-  // At each timestep, ego can set acceleration to value between
-  // -MAX_ACCEL and MAX_ACCEL
+  // At each timestep, ego can set acceleration to value between -MAX_ACCEL and MAX_ACCEL
   double MAX_ACCEL = 0.224;
 
-  // s value and lane number of goal.
-  int GOAL_LANE = 1;
-
-  // initial state
+  // An instance of Vehicle that will hold ego's current state
   Vehicle ego;
-  ego.state = "KL";
 
 
   h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy,SPEED_LIMIT,MAX_ACCEL,&ego](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
@@ -243,17 +232,18 @@ int main() {
         if (event == "telemetry") {
           // j[1] is the data JSON object
 
-        	// Main car's localization Data
-          	double car_x = j[1]["x"];
-          	double car_y = j[1]["y"];
-          	double car_s = j[1]["s"];
-          	double car_d = j[1]["d"];
-          	double car_yaw = j[1]["yaw"];
-          	double car_speed = j[1]["speed"];
+        	// ego's localization Data from the simulator
+          	ego.x = j[1]["x"];
+          	ego.y = j[1]["y"];
+          	ego.s = j[1]["s"];
+          	ego.d = j[1]["d"];
+          	ego.yaw = j[1]["yaw"];
+          	ego.speed = j[1]["speed"];
 
           	// Previous path data given to the Planner
           	auto previous_path_x = j[1]["previous_path_x"];
           	auto previous_path_y = j[1]["previous_path_y"];
+
           	// Previous path's end s and d values
           	double end_path_s = j[1]["end_path_s"];
           	double end_path_d = j[1]["end_path_d"];
@@ -267,13 +257,6 @@ int main() {
           	vector<double> next_y_vals;
 
 
-          	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-
-          	//cout << "Inside todo" << endl;
-            //cout << "car_yaw = " << car_yaw << endl;
-          	//cout << "car_s = " << car_s << endl;
-          	//cout << "car_d = " << car_d << endl;
-
           	/* ******************************/
           	/* Prediction section           */
           	/* ******************************/
@@ -281,16 +264,15 @@ int main() {
             predictions pred;
             int other_vehicle_lane;
 
-            ego.lane = Vehicle::get_lane(car_d);
+            ego.state = "KL";
+            ego.lane = Vehicle::get_lane(ego.d);        // Determine current lane of ego
             target_lane = ego.lane;
-            //cout << "lane = " << ego.lane << endl;
 
             int prev_size = previous_path_x.size();
-            //cout << "prev path size = " << prev_size << endl;
 
             if(prev_size > 0)
             {
-                car_s = end_path_s;
+                ego.s = end_path_s;
             }
 
             // find ref_vel to use
@@ -303,61 +285,64 @@ int main() {
                 double vx = sensor_fusion[i][3];
                 double vy = sensor_fusion[i][4];
                 double check_speed = sqrt(vx*vx + vy*vy);
-                double check_car_s = sensor_fusion[i][5];
+                double check_ego_s = sensor_fusion[i][5];
 
                 //if using previous points, can project s value out
-                check_car_s += ((double)prev_size * 0.02 * check_speed);
+                check_ego_s += ((double)prev_size * 0.02 * check_speed);
 
                 //check if s value greater than car and s gap
-                if(check_car_s > car_s)
+                if(check_ego_s > ego.s)
                 {
-                    if((other_vehicle_lane == ego.lane) && ((check_car_s - car_s) < 30))
-                    //if(d < (2 + 4 * ego.lane + 2) && d > (2 + 4 * ego.lane - 2))
+                    //if there is a vehicle ahead in ego's lane within safe distance, flag the need for a lane change or slow down
+                    if((other_vehicle_lane == ego.lane) && ((check_ego_s - ego.s) < CURRENT_LANE_VEHICLE_AHEAD_SAFE_DISTANCE))
                     {
                         pred.current_lane_too_close = true;
-                        cout << "approaching vehicle in lane, need to slow down  " << check_car_s - car_s << endl;
+                        cout << "approaching vehicle in lane, slowing down  " << check_ego_s - ego.s << endl;
                     }
-                    else if((other_vehicle_lane == ego.lane - 1) && ((check_car_s - car_s) < 40))
+                    //if there is a vehicle ahead in the lane left of ego's lane within safe distance, flag the fact that passing on left is not possible
+                    else if((other_vehicle_lane == ego.lane - 1) && ((check_ego_s - ego.s) < TARGET_LANE_VEHICLE_AHEAD_SAFE_DISTANCE))
                     {
                         pred.left_lane_open = false;
-                        //cout << "left pass not possible - vehicle ahead" << endl;
                     }
-                    else if((other_vehicle_lane == ego.lane + 1) && ((check_car_s - car_s) < 40))
+                    //if there is a vehicle ahead in the lane right of ego's lane within safe distance, flag the fact that passing on right is not possible
+                    else if((other_vehicle_lane == ego.lane + 1) && ((check_ego_s - ego.s) < TARGET_LANE_VEHICLE_AHEAD_SAFE_DISTANCE))
                     {
                         pred.right_lane_open = false;
-                        //cout << "right pass not possible - vehicle ahead" << endl;
                     }
                 }
-                else if((check_car_s < car_s) && ((car_s - check_car_s) < 15))
+                // if there are vehicles behind ego in adjacent lanes, then flag the fact that passing through those lanes is not possible
+                else if((check_ego_s < ego.s) && ((ego.s - check_ego_s) < TARGET_LANE_VEHICLE_BEHIND_SAFE_DISTANCE))
                 {
                     if(other_vehicle_lane == ego.lane - 1)
                     {
                         pred.left_lane_open = false;
-                        //cout << "left pass not possible - vehicle behind" << endl;
                     }
                     else if(other_vehicle_lane == ego.lane + 1)
                     {
                         pred.right_lane_open = false;
-                        //cout << "right pass not possible - vehicle behind" << endl;
                     }
                 }
             }
+
 
             /* ********************************/
           	/* Behaviour Planning section     */
           	/* ********************************/
 
+            // Determine next best state for ego based on current state and predictions
+            string next_best_state = ego.choose_next_state(pred);
 
-            string next_state = ego.choose_next_state(pred);
-
-            if(next_state == "LCL")
+            if(next_best_state == "LCL")
             {
               target_lane = ego.lane - 1;
+              cout << "execute left lane change" << endl;
             }
-            else if(next_state == "LCR")
+            else if(next_best_state == "LCR")
             {
               target_lane = ego.lane + 1;
+              cout << "execute right lane change" << endl;
             }
+
 
           	/* *********************************/
           	/* Trajectory Planning section     */
@@ -366,22 +351,25 @@ int main() {
             vector<double> ptsx;
             vector<double> ptsy;
 
-            double ref_x = car_x;
-            double ref_y = car_y;
-            double ref_yaw = deg2rad(car_yaw);
+            double ref_x = ego.x;
+            double ref_y = ego.y;
+            double ref_yaw = deg2rad(ego.yaw);
 
+            // Determine first two points that will be part of coordinates used to generate the spline
+
+            // if previous path not available, calculate notional previous point using ego's current position and yaw
             if(prev_size < 2)
             {
-                //cout << "prev path is < 2" << endl;
-                double prev_car_x = car_x - cos(car_yaw);
-                double prev_car_y = car_y - sin(car_yaw);
+                double prev_ego_x = ego.x - cos(ego.yaw);
+                double prev_ego_y = ego.y - sin(ego.yaw);
 
-                ptsx.push_back(prev_car_x);
-                ptsx.push_back(car_x);
+                ptsx.push_back(prev_ego_x);
+                ptsx.push_back(ego.x);
 
-                ptsy.push_back(prev_car_y);
-                ptsy.push_back(car_y);
+                ptsy.push_back(prev_ego_y);
+                ptsy.push_back(ego.y);
             }
+            // if previous path is available, use point from previous path
             else
             {
                 ref_x = previous_path_x[prev_size - 1];
@@ -398,9 +386,10 @@ int main() {
                 ptsy.push_back(ref_y);
             }
 
-            vector<double> next_wp0 = getXY(car_s + 30, (2 + 4*target_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-            vector<double> next_wp1 = getXY(car_s + 60, (2 + 4*target_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-            vector<double> next_wp2 = getXY(car_s + 90, (2 + 4*target_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            // Generate 3 more points for the spline generation coordinates by extrapolating at 30m, 60m and 90m
+            vector<double> next_wp0 = getXY(ego.s + 30, (2 + 4*target_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp1 = getXY(ego.s + 60, (2 + 4*target_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp2 = getXY(ego.s + 90, (2 + 4*target_lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
 
             ptsx.push_back(next_wp0[0]);
             ptsx.push_back(next_wp1[0]);
@@ -410,6 +399,7 @@ int main() {
             ptsy.push_back(next_wp1[1]);
             ptsy.push_back(next_wp2[1]);
 
+            // Shift the points to car coordinates
             for(int i = 0; i < ptsx.size(); i++)
             {
                 double shift_x = ptsx[i] - ref_x;
@@ -421,11 +411,9 @@ int main() {
 
             // create a spline
             tk::spline s;
-            //cout << "created spline" << endl;
 
             // set (x,y) points to the spline
             s.set_points(ptsx, ptsy);
-            //cout << "set initial x and y points" << endl;
 
             //If points available from past path, add them to the planner
             for(int i =0; i < prev_size; i++)
@@ -437,18 +425,17 @@ int main() {
 
             double target_x = 30.0;
             double target_y = s(target_x);
-            //cout << "y from spline at x=30 is " << target_y << endl;
+
             double target_dist = sqrt((target_x * target_x) + (target_y * target_y));
 
             double x_add_on = 0;
 
-
+            // Extract points from the spline that will be the path followed by the car
             for(int i=1; i <= 50 - previous_path_x.size(); i++)
             {
                 double N = (target_dist / (0.02 * ref_vel / 2.24));
                 double x_point = x_add_on + (target_x) / N;
                 double y_point = s(x_point);
-                //cout << "y from spline at x_point = " << x_point << "is " << y_point << endl;
 
                 x_add_on = x_point;
 
@@ -474,8 +461,6 @@ int main() {
                     ref_vel += MAX_ACCEL;
                 }
             }
-
-            //cout << "path size = " << next_x_vals.size() << " , " << next_y_vals.size() << endl;
 
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
