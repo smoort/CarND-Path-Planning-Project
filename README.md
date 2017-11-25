@@ -9,9 +9,9 @@ Below is the approach followed for generating the trajectory
 *  The current position of ego is the second point.
 *  The first point is taken from the previous path returned by the simulator.  If the previous path does not exist, the first point is extrapolated using the current position and yaw of ego.
 *  The third, fourth and fifth points are calculated using ego's current position, target lane and at a distance of 30m, 60m and 90m respectively.
-1. The 5 points are then shifted to car coordinates to keep the math and intution simple.
-1. A spline is generated using the 5 shifted points.
-1. Points available in the previous path are added to the planner first.
+2. The 5 points are then shifted to car coordinates to keep the math and intution simple.
+3. A spline is generated using the 5 shifted points.
+4. Points available in the previous path are added to the planner first.
 1. Y value at a target x distance of 30m in front of car is calculated
 1. The target distance is calculated as the hypotenues of x and y
 1. The target distance is broken down into small chunks based on the number of point that are still needed for the planner
